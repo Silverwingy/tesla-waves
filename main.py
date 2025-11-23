@@ -56,6 +56,14 @@ def check_teslafi():
             continue
         
         text = cols[0].get_text().strip()
+
+         # DEBUG BLOCK
+        target_version = "2025.44.3"  # or whatever exact build string TeslaFi shows
+        if target_version in text:
+            print(f"Debug for {text}:")
+            for i, c in enumerate(cols):
+                print(i, repr(c.get_text(strip=True)))
+            print("----")
         
         # Valid version check (Starts with '20' and has a dot, e.g., '2025.44.1')
         if text.startswith("20") and "." in text and len(text) < 25:
