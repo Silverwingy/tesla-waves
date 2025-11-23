@@ -59,7 +59,7 @@ def post_to_x(text):
 
 
 def format_x_new_build(version, pending):
-    return f"New build detected. Tesla has started rolling out {version}."
+    return f"New build spotted. Tesla has started rolling out {version}."
 
 
 def format_x_wave(version, diff, pending):
