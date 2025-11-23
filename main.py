@@ -64,7 +64,7 @@ def check_teslafi():
                 # Col 1: Current Installs (not used for logic now)
                 # Col 2: Percent (skip)
                 # Col 3: Pending Installs (target)
-                pending_text = cols[3].get_text().strip().replace(",", "")
+                pending_text = cols[1].get_text().strip().replace(",", "")
                 pending = int(pending_text) if pending_text.isdigit() else 0
             except Exception as e:
                 print(f"Error parsing columns for version {text}: {e}")
@@ -99,8 +99,9 @@ def check_teslafi():
         if version not in versions_memory:
             detail_url = f"https://www.teslafi.com/firmware.php?detail={version}"
             msg = (
-                f"🆕 **New Build** – `{version}`\n\n"
-                f" Initial Rollout pending count: {pending} on [TeslaFi]({detail_url})"
+                f"**New Build Detected** – `{version}`\n\n"
+                f"Rollout Count: {pending} on [TeslaFi]({detail_url})\n\n"
+                f"[TeslaFi]({detail_url})"
             )
             send_telegram(msg)
             versions_memory[version] = pending
