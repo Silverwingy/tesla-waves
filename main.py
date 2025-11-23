@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 import json
+from requests_oauthlib import OAuth1
 
 # --- CONFIGURATION ---
 URL = "https://www.teslafi.com/firmware.php"
@@ -15,6 +16,11 @@ WAVE_THRESHOLD = 5  # Trigger alert if new detection size is >= 5
 bot_token = os.environ.get("TELEGRAM_TOKEN")
 chat_id = os.environ.get("CHAT_ID")
 SHEET_WEBHOOK_URL = os.environ.get("SHEET_WEBHOOK_URL")
+X_API_KEY = os.environ.get("X_API_KEY")
+X_API_SECRET = os.environ.get("X_API_SECRET")
+X_ACCESS_TOKEN = os.environ.get("X_ACCESS_TOKEN")
+X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET")
+
 
 def notify_sheet_new_build(version):
     if not SHEET_WEBHOOK_URL:
@@ -28,6 +34,38 @@ def notify_sheet_new_build(version):
     except Exception as e:
         print(f"Failed to notify sheet: {e}")
 
+
+def post_to_x(text):
+    if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):
+        print("Missing X credentials")
+        return
+
+    auth = OAuth1(
+        X_API_KEY,
+        X_API_SECRET,
+        X_ACCESS_TOKEN,
+        X_ACCESS_TOKEN_SECRET,
+    )
+
+    url = "https://api.twitter.com/2/tweets"
+    payload = {"text": text}
+
+    try:
+        r = requests.post(url, auth=auth, json=payload, timeout=10)
+        if r.status_code >= 300:
+            print("X post failed", r.status_code, r.text)
+    except Exception as e:
+        print("X post error:", e)
+
+
+def format_x_new_build(version, pending):
+    return f"New build detected. Tesla has started rolling out {version}."
+
+
+def format_x_wave(version, diff, pending):
+    return f"A new wave for {version} is rolling out now."
+
+
 def send_telegram(message):
     if not bot_token or not chat_id:
         print("Error: Missing Telegram tokens.")
@@ -39,15 +77,18 @@ def send_telegram(message):
     except Exception as e:
         print(f"Failed to send alert: {e}")
 
+
 def load_memory():
     if os.path.exists(MEMORY_FILE):
         with open(MEMORY_FILE, "r") as f:
             return json.load(f)
     return {}
 
+
 def save_memory(data):
     with open(MEMORY_FILE, "w") as f:
         json.dump(data, f)
+
 
 def check_teslafi():
     print("Fetching TeslaFi data...")
@@ -59,7 +100,7 @@ def check_teslafi():
         return
 
     soup = BeautifulSoup(response.text, "html.parser")
-    
+
     # --- LOGIC: Collect all builds in the fleet table ---
     builds = {}  # version -> pending installs
 
@@ -116,10 +157,14 @@ def check_teslafi():
             detail_url = f"https://www.teslafi.com/firmware.php?detail={version}"
             msg = (
                 f"🚨 New Build Detected\n\n"
-                f"{version}`\n\n"
+                f"`{version}`\n\n"
                 f"Initial Rollout: {pending}   \u2013 [TeslaFi]({detail_url})"
             )
             send_telegram(msg)
+
+            tweet_text = format_x_new_build(version, pending)
+            post_to_x(tweet_text)
+
             notify_sheet_new_build(version)
             versions_memory[version] = pending
 
@@ -129,10 +174,14 @@ def check_teslafi():
             detail_url = f"https://www.teslafi.com/firmware.php?detail={version}"
             msg = (
                 f"🌊 New Wave Rolling Out\n\n"
-                f"{version}`\n\n"
+                f"`{version}`\n\n"
                 f"Rollout Size: {diff}   \u2013 [TeslaFi]({detail_url})"
             )
             send_telegram(msg)
+
+            tweet_text = format_x_wave(version, diff, pending)
+            post_to_x(tweet_text)
+
             versions_memory[version] = pending
 
         else:
@@ -144,6 +193,7 @@ def check_teslafi():
     memory.pop("last_version", None)
     memory.pop("last_count", None)
     save_memory(memory)
+
 
 if __name__ == "__main__":
     check_teslafi()
