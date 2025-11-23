@@ -1,0 +1,39 @@
+name: TeslaFi Tracker
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # Runs every 10 minutes
+  workflow_dispatch:        # Allows you to click a button to test it immediately
+
+jobs:
+  check-firmware:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # Needed to save the memory.json file
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run Tracker
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python main.py
+
+      - name: Commit Memory (Save State)
+        run: |
+          git config --global user.name 'TeslaBot'
+          git config --global user.email 'bot@noreply.github.com'
+          # Check if memory.json exists and has changed
+          git add memory.json || true
+          git commit -m "Update state" || exit 0
+          git push
