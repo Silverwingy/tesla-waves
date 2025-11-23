@@ -1,11 +1,18 @@
 import requests
 from bs4 import BeautifulSoup
+from bs4 import NavigableString
 import os
 import json
 from requests_oauthlib import OAuth1
 
 # --- CONFIGURATION ---
 URL = "https://www.teslafi.com/firmware.php"
+SHOP_URLS = [
+    "https://shop.tesla.com/category/charging",
+    "https://shop.tesla.com/category/vehicle-accessories",
+    "https://shop.tesla.com/category/apparel",
+    "https://shop.tesla.com/category/lifestyle",
+]
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36"
 }
@@ -64,7 +71,19 @@ def format_x_new_build(version, pending):
 
 def format_x_wave(version, diff, pending):
     return f"A new wave for {version} is rolling out now."
+    
 
+def format_x_new_product(name, price, url):
+    lines = [
+        "New Product on Tesla Shop:",
+        "",
+        name,
+    ]
+    if price:
+        lines.append(price)
+    lines.append(url)
+    return "\n".join(lines)
+    
 
 def send_telegram(message):
     if not bot_token or not chat_id:
@@ -88,6 +107,125 @@ def load_memory():
 def save_memory(data):
     with open(MEMORY_FILE, "w") as f:
         json.dump(data, f)
+
+
+def scrape_tesla_shop_products():
+    products = {}  # product_id -> {name, price, url}
+
+    for category_url in SHOP_URLS:
+        print(f"Fetching Tesla Shop category: {category_url}")
+        try:
+            r = requests.get(category_url, headers=HEADERS, timeout=20)
+            r.raise_for_status()
+        except Exception as e:
+            print(f"Error fetching {category_url}: {e}")
+            continue
+
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # look for links to /product/ pages and grab name + nearby price
+        for a in soup.select('a[href*="/product/"]'):
+            name = a.get_text(strip=True)
+            href = a.get("href", "")
+
+            if not name or not href:
+                continue
+
+            # normalize full URL
+            if href.startswith("http"):
+                url = href
+            else:
+                url = "https://shop.tesla.com" + href
+
+            # use slug after /product/ as product id
+            product_id = href.split("/product/")[-1].split("?")[0].strip("/")
+            if not product_id:
+                continue
+
+            if product_id in products:
+                continue  # already captured from another category
+
+            price = None
+
+            # first try siblings after the link
+            for sib in a.next_siblings:
+                try:
+                    if isinstance(sib, NavigableString):
+                        text = str(sib).strip()
+                    else:
+                        text = sib.get_text(strip=True)
+                except Exception:
+                    continue
+
+                if not text:
+                    continue
+                if "$" in text and any(ch.isdigit() for ch in text):
+                    price = text
+                    break
+
+            # fallback: scan parent for a price string
+            if not price:
+                parent = a.parent
+                if parent:
+                    for node in parent.stripped_strings:
+                        if "$" in node and any(ch.isdigit() for ch in node):
+                            price = node
+                            break
+
+            products[product_id] = {
+                "name": name,
+                "price": price or "",
+                "url": url,
+            }
+
+    print(f"Found {len(products)} Tesla Shop products across categories.")
+    return products
+
+
+def check_tesla_shop(memory):
+    # memory["products"] will hold known product ids
+    seen_products = memory.get("products")
+    current_products = scrape_tesla_shop_products()
+
+    # first run: seed without alerting to avoid spamming all existing items
+    if not isinstance(seen_products, dict) or not seen_products:
+        memory["products"] = current_products
+        print(f"Initialized Tesla Shop memory with {len(current_products)} products.")
+        return
+
+    new_items = []
+
+    for pid, info in current_products.items():
+        if pid not in seen_products:
+            new_items.append(info)
+            seen_products[pid] = info
+
+    if not new_items:
+        print("No new Tesla Shop products.")
+    else:
+        print(f"Detected {len(new_items)} new Tesla Shop products.")
+        for info in new_items:
+            name = info["name"]
+            price = info["price"]
+            url = info["url"]
+
+            # Telegram message
+            msg_lines = [
+                "🛒 New Product on Tesla Shop:",
+                "",
+                name,
+            ]
+            if price:
+                msg_lines.append(price)
+            msg_lines.append(url)
+
+            send_telegram("\n".join(msg_lines))
+
+            # X message
+            tweet = format_x_new_product(name, price, url)
+            post_to_x(tweet)
+
+    memory["products"] = seen_products
 
 
 def check_teslafi():
@@ -192,6 +330,10 @@ def check_teslafi():
     memory["versions"] = versions_memory
     memory.pop("last_version", None)
     memory.pop("last_count", None)
+
+    # also check Tesla Shop for new products using the same memory.json
+    check_tesla_shop(memory)
+    
     save_memory(memory)
 
 
