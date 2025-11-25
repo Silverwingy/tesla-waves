@@ -2,8 +2,8 @@ name: grimblefox
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # Runs every 10 minutes
-  workflow_dispatch:        # Allows you to click a button to test it immediately
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
   check-firmware:
