@@ -1,0 +1,49 @@
+name: grimblefox
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # Runs every 10 minutes
+  workflow_dispatch:        # Allows you to click a button to test it immediately
+
+jobs:
+  check-firmware:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout wrapper repo
+        uses: actions/checkout@v3
+
+      - name: Clone private waves repo
+        run: |
+          git clone https://x-access-token:${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/Silverwingy/waves.git private_code
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: pip install requests beautifulsoup4 requests_oauthlib
+   
+      - name: Run
+        working-directory: private_code
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+        run: python main.py
+
+      - name: Commit Memory (Save State)
+        working-directory: private_code
+        run: |
+          git config --global user.name 'FoxBot'
+          git config --global user.email 'bot@noreply.github.com'
+          git add memory.json a_app.json b_app.json || true
+          git commit -m "Update state" || exit 0
+          git push
